@@ -8,7 +8,7 @@ import java.util.List;
 public class Buttons {
     private static final InlineKeyboardButton START_BUTTON = new InlineKeyboardButton("Start \uD83C\uDF2D");
     private static final InlineKeyboardButton VYACHESLAV_BUTTON = new InlineKeyboardButton(
-            "Вовращение Вячеслава \uD83E\uDEE1");
+            "Возвращение Вячеслава \uD83E\uDEE1");
     private static final InlineKeyboardButton TOGGLE_BUTTON = new InlineKeyboardButton(
             "Ежедневные сообщения \uD83D\uDCE3");
     private static final InlineKeyboardButton HELP_BUTTON = new InlineKeyboardButton("Help \u2753");

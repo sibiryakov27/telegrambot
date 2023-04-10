@@ -29,6 +29,7 @@ public class ZhmyhpyhTelegramBot extends TelegramLongPollingBot {
     private static final List<BotCommand> LIST_OF_COMMANDS = List.of(
             new BotCommand("/start", "start bot"),
             new BotCommand("/vyacheslave", "Информация о возвращении Вячеслава"),
+            new BotCommand("/victor", "Информация о возвращении Виктора"),
             new BotCommand("/toggle_daily_messaging", "Включить/отключить ежедневные утренние сообщения"),
             new BotCommand("/help", "bot info")
     );
@@ -38,10 +39,12 @@ public class ZhmyhpyhTelegramBot extends TelegramLongPollingBot {
             "/start - приветственное сообщение\n" +
             "/toggle_daily_messaging - включить/отключить ежедневные утренние сообщения\n" +
             "/help - помощь\n" +
-            "/vyacheslave - информация о времени, оставшемся до возвращения Вячеслава";
+            "/vyacheslave - информация о времени, оставшемся до возвращения Вячеслава\n" +
+            "/victor - информация о времени, оставшемся до возвращения Виктора";
 
     private final BotConfig config;
-    private final LocalDateTime returningDate = LocalDateTime.of(2023, 6, 27, 0, 0, 0);
+    private final LocalDateTime vyacheslavReturningDate = LocalDateTime.of(2023, 6, 27, 0, 0, 0);
+    private final LocalDateTime victorReturningDate = LocalDateTime.of(2023, 12, 26, 0, 0, 0);
 
     private final Map<Long, Boolean> subscribers = new HashMap<>();
 
@@ -94,7 +97,10 @@ public class ZhmyhpyhTelegramBot extends TelegramLongPollingBot {
     @Scheduled(cron = "${bot.dailymessage.cron}")
     private void myScheduledMethod() {
         if (subscribers.containsValue(true)) {
-            String message = "Доброе утро! " + getMessageAboutVyacheslav() + " Хорошего дня!";
+            String message = "Доброе утро!\n\n" +
+                    "До возвращения Вячеслава осталось: " + getDurationMessage(vyacheslavReturningDate) + ".\n\n" +
+                    "До возвращения Виктора осталось: " + getDurationMessage(victorReturningDate) + ".\n\n" +
+                    "Хорошего дня!";
             for (Map.Entry<Long, Boolean> entry : subscribers.entrySet()) {
                 if (entry.getValue()) {
                     sendMessage(entry.getKey(), message);
@@ -114,7 +120,11 @@ public class ZhmyhpyhTelegramBot extends TelegramLongPollingBot {
                 startBot(chatId, userName);
                 break;
             case "/vyacheslave":
-                message = getMessageAboutVyacheslav();
+                message = "До возвращения Вячеслава осталось: " + getDurationMessage(vyacheslavReturningDate) + ".";
+                sendMessage(chatId, message);
+                break;
+            case "/victor":
+                message = "До возвращения Виктора осталось: " + getDurationMessage(victorReturningDate) + ".";
                 sendMessage(chatId, message);
                 break;
             case "/toggle_daily_messaging":
@@ -145,9 +155,9 @@ public class ZhmyhpyhTelegramBot extends TelegramLongPollingBot {
         }
     }
 
-    private String getMessageAboutVyacheslav() {
+    private String getDurationMessage(LocalDateTime future) {
         LocalDateTime now = LocalDateTime.now();
-        Duration duration = Duration.between(now, returningDate);
+        Duration duration = Duration.between(now, future);
         long days = duration.toDays();
         long hours = duration.toHours() % 24;
         long minutes = duration.toMinutes() % 60;
@@ -157,7 +167,7 @@ public class ZhmyhpyhTelegramBot extends TelegramLongPollingBot {
         String minutesString = StringUtils.getCorrectWordForm(minutes, "минута", "минуты", "минут");
         String secondsString = StringUtils.getCorrectWordForm(seconds, "секунда", "секунды", "секунд");
 
-        return String.format("До возвращения Вячеслава осталось: %d %s, %d %s, %d %s, %d %s.",
+        return String.format("%d %s, %d %s, %d %s, %d %s",
                 days, daysString, hours, hoursString, minutes, minutesString, seconds, secondsString);
     }
 
@@ -169,7 +179,7 @@ public class ZhmyhpyhTelegramBot extends TelegramLongPollingBot {
         try {
             execute(message);
             log.info("Reply sent");
-        } catch (TelegramApiException e){
+        } catch (TelegramApiException e) {
             log.error(e.getMessage());
         }
     }

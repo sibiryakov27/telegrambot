@@ -1,5 +1,7 @@
 package com.zhmyhpyh.bot;
 
+import com.zhmyhpyh.bot.inlinebutton.InlineButton;
+import com.zhmyhpyh.bot.inlinebutton.InlineButtonsMaker;
 import com.zhmyhpyh.config.BotConfig;
 import com.zhmyhpyh.util.StringUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -17,6 +19,7 @@ import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import javax.validation.constraints.NotNull;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,32 +29,30 @@ import java.util.Map;
 @EnableScheduling
 public class ZhmyhpyhTelegramBot extends TelegramLongPollingBot {
 
-    private static final List<BotCommand> LIST_OF_COMMANDS = List.of(
-            new BotCommand("/start", "start bot"),
-            new BotCommand("/vyacheslave", "Информация о возвращении Вячеслава"),
-            new BotCommand("/victor", "Информация о возвращении Виктора"),
-            new BotCommand("/toggle_daily_messaging", "Включить/отключить ежедневные утренние сообщения"),
-            new BotCommand("/help", "bot info")
-    );
-
-    private static final String HELP_TEXT = "Я сосиска в тесте. Я считаю дни до возвращения Вячеслава. " +
-            "Вам доступны следующие команды:\n\n" +
-            "/start - приветственное сообщение\n" +
-            "/toggle_daily_messaging - включить/отключить ежедневные утренние сообщения\n" +
-            "/help - помощь\n" +
-            "/vyacheslave - информация о времени, оставшемся до возвращения Вячеслава\n" +
-            "/victor - информация о времени, оставшемся до возвращения Виктора";
-
     private final BotConfig config;
-    private final LocalDateTime vyacheslavReturningDate = LocalDateTime.of(2023, 6, 27, 0, 0, 0);
-    private final LocalDateTime victorReturningDate = LocalDateTime.of(2023, 12, 26, 0, 0, 0);
+    private final Map<Long, Boolean> subscribers;
+    private final List<InlineButton> commandButtons;
+    private InlineButtonsMaker inlineButtonsMaker;
 
-    private final Map<Long, Boolean> subscribers = new HashMap<>();
+    private static final LocalDateTime VYACHESLAV_RETURNING_DATE = LocalDateTime.of(2023, 6, 27, 0, 0, 0);
+    private static final LocalDateTime VICTOR_RETURNING_DATE = LocalDateTime.of(2023, 12, 26, 0, 0, 0);
 
-    public ZhmyhpyhTelegramBot(BotConfig config) {
+    public ZhmyhpyhTelegramBot(BotConfig config, InlineButtonsMaker inlineButtonsMaker) {
         this.config = config;
+        this.inlineButtonsMaker = inlineButtonsMaker;
+
+        subscribers = new HashMap<>();
+        commandButtons = new ArrayList<>();
+        for (CommandEnum commandEnum : CommandEnum.values()) {
+            commandButtons.add(new InlineButton(commandEnum.getButtonText(), commandEnum.getCommand()));
+        }
+
         try {
-            this.execute(new SetMyCommands(LIST_OF_COMMANDS, new BotCommandScopeDefault(), null));
+            List<BotCommand> botCommands = new ArrayList<>();
+            for (CommandEnum commandEnum : CommandEnum.values()) {
+                botCommands.add(new BotCommand(commandEnum.getCommand(), commandEnum.getDescription()));
+            }
+            this.execute(new SetMyCommands(botCommands, new BotCommandScopeDefault(), null));
         } catch (TelegramApiException e){
             log.error(e.getMessage());
         }
@@ -94,64 +95,108 @@ public class ZhmyhpyhTelegramBot extends TelegramLongPollingBot {
         }
     }
 
-    @Scheduled(cron = "${bot.dailymessage.cron}")
-    private void myScheduledMethod() {
-        if (subscribers.containsValue(true)) {
-            String message = "Доброе утро!\n\n" +
-                    "До возвращения Вячеслава осталось: " + getDurationMessage(vyacheslavReturningDate) + ".\n\n" +
-                    "До возвращения Виктора осталось: " + getDurationMessage(victorReturningDate) + ".\n\n" +
-                    "Хорошего дня!";
-            for (Map.Entry<Long, Boolean> entry : subscribers.entrySet()) {
-                if (entry.getValue()) {
-                    sendMessage(entry.getKey(), message);
-                }
+    private void botAnswerUtils(String receivedMessage, long chatId, String userName) {
+        for (CommandEnum commandEnum : CommandEnum.values()) {
+            if (receivedMessage.startsWith(commandEnum.getCommand())) {
+                executeCommand(commandEnum, chatId, userName);
             }
         }
     }
 
-    private void botAnswerUtils(String receivedMessage, long chatId, String userName) {
-        if (chatId < 0L) {
-            receivedMessage = receivedMessage.replace("@" + config.getBotName(), "");
-        }
-        String message;
+    private void executeCommand(CommandEnum commandEnum, long chatId, String userName) {
         String waitingForTimeUserName;
-        switch (receivedMessage) {
-            case "/start":
-                startBot(chatId, userName);
+        switch (commandEnum) {
+            case START:
+                startBotCommand(chatId, userName);
                 break;
-            case "/vyacheslave":
-                message = "До возвращения Вячеслава осталось: " + getDurationMessage(vyacheslavReturningDate) + ".";
-                sendMessage(chatId, message);
+            case TOGGLE:
+                toggleCommand(chatId);
                 break;
-            case "/victor":
-                message = "До возвращения Виктора осталось: " + getDurationMessage(victorReturningDate) + ".";
-                sendMessage(chatId, message);
+            case VICTOR:
+                victorCommand(chatId);
                 break;
-            case "/toggle_daily_messaging":
-                subscribers.putIfAbsent(chatId, false);
-                boolean sendMessage = subscribers.get(chatId);
-                message = sendMessage ? "Ежедневная рассылка отключена" : "Вы включили ежедневную рассылку";
-                subscribers.put(chatId, !sendMessage);
-                sendMessage(chatId, message);
+            case VYACHESLAVE:
+                vyacheslavCommand(chatId);
                 break;
-            case "/help":
-                sendMessage(chatId, HELP_TEXT);
+            case HELP:
+                helpCommand(chatId);
                 break;
             default: break;
         }
     }
 
-    private void startBot(long chatId, String userName) {
+    // ==========================КОМАНДЫ=========================================================
+
+    private void startBotCommand(long chatId, String userName) {
         SendMessage message = new SendMessage();
         message.setChatId(chatId);
         message.setText("Привет, " + userName + "! Я сосиска в тесте.");
-        message.setReplyMarkup(Buttons.inlineMarkup());
+        message.setReplyMarkup(inlineButtonsMaker.inlineMarkup(commandButtons, 2));
 
         try {
             execute(message);
             log.info("Reply sent");
         } catch (TelegramApiException e){
             log.error(e.getMessage());
+        }
+    }
+
+    private void toggleCommand(long chatId) {
+        subscribers.putIfAbsent(chatId, false);
+        boolean subscription = subscribers.get(chatId);
+        String message = subscription ? "Ежедневная рассылка отключена" : "Ежедневная рассылка включена";
+        subscribers.put(chatId, !subscription);
+        sendMessage(chatId, message);
+    }
+
+    private void vyacheslavCommand(long chatId) {
+        String message = "До возвращения Вячеслава осталось: " + getDurationMessage(VYACHESLAV_RETURNING_DATE) + ".";
+        sendMessage(chatId, message);
+    }
+
+    private void victorCommand(long chatId) {
+        String message = "До возвращения Виктора осталось: " + getDurationMessage(VICTOR_RETURNING_DATE) + ".";
+        sendMessage(chatId, message);
+    }
+
+    private void helpCommand(long chatId) {
+        StringBuilder message = new StringBuilder("Я сосиска в тесте. " +
+                "Меня создали, чтобы считать дни до возвращения Вячеслава и Виктора. " +
+                "Но вскоре я могу научиться чему-то ещё...\n\n" +
+                "А пока вам доступны следующие команды:\n");
+        for (CommandEnum commandEnum : CommandEnum.values()) {
+            message.append(commandEnum.getCommand()).append(" - ").append(commandEnum.getDescription()).append(".\n");
+        }
+        sendMessage(chatId, message.toString().strip());
+    }
+
+    // ============================================================================================
+
+    private void sendMessage(long chatId, String text) {
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId);
+        message.setText(text);
+
+        try {
+            execute(message);
+            log.info("Reply sent");
+        } catch (TelegramApiException e) {
+            log.error(e.getMessage());
+        }
+    }
+
+    @Scheduled(cron = "${bot.dailymessage.cron}")
+    private void myScheduledMethod() {
+        if (subscribers.containsValue(true)) {
+            String message = "Доброе утро!\n\n" +
+                    "До возвращения Вячеслава осталось: " + getDurationMessage(VYACHESLAV_RETURNING_DATE) + ".\n\n" +
+                    "До возвращения Виктора осталось: " + getDurationMessage(VICTOR_RETURNING_DATE) + ".\n\n" +
+                    "Хорошего дня!";
+            for (Map.Entry<Long, Boolean> entry : subscribers.entrySet()) {
+                if (entry.getValue()) {
+                    sendMessage(entry.getKey(), message);
+                }
+            }
         }
     }
 
@@ -169,19 +214,6 @@ public class ZhmyhpyhTelegramBot extends TelegramLongPollingBot {
 
         return String.format("%d %s, %d %s, %d %s, %d %s",
                 days, daysString, hours, hoursString, minutes, minutesString, seconds, secondsString);
-    }
-
-    public void sendMessage(long chatId, String text) {
-        SendMessage message = new SendMessage();
-        message.setChatId(chatId);
-        message.setText(text);
-
-        try {
-            execute(message);
-            log.info("Reply sent");
-        } catch (TelegramApiException e) {
-            log.error(e.getMessage());
-        }
     }
 
 }

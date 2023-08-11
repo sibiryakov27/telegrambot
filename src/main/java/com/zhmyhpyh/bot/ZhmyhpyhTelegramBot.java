@@ -3,12 +3,16 @@ package com.zhmyhpyh.bot;
 import com.zhmyhpyh.bot.inlinebutton.InlineButton;
 import com.zhmyhpyh.bot.inlinebutton.InlineButtonsMaker;
 import com.zhmyhpyh.config.BotConfig;
+import com.zhmyhpyh.entity.User;
+import com.zhmyhpyh.repository.UserRepository;
 import com.zhmyhpyh.util.StringUtils;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
+import org.telegram.telegrambots.meta.api.methods.ParseMode;
 import org.telegram.telegrambots.meta.api.methods.commands.SetMyCommands;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
@@ -17,9 +21,11 @@ import org.telegram.telegrambots.meta.api.objects.commands.scope.BotCommandScope
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 import javax.validation.constraints.NotNull;
+import java.text.SimpleDateFormat;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,8 +40,12 @@ public class ZhmyhpyhTelegramBot extends TelegramLongPollingBot {
     private final List<InlineButton> commandButtons;
     private InlineButtonsMaker inlineButtonsMaker;
 
+    @Autowired
+    private UserRepository userRepository;
+
     private static final LocalDateTime VYACHESLAV_RETURNING_DATE = LocalDateTime.of(2023, 6, 27, 0, 0, 0);
     private static final LocalDateTime VICTOR_RETURNING_DATE = LocalDateTime.of(2023, 12, 26, 0, 0, 0);
+    private static final SimpleDateFormat DATE_FORMAT = new SimpleDateFormat("dd.MM.yyyy");
 
     public ZhmyhpyhTelegramBot(BotConfig config, InlineButtonsMaker inlineButtonsMaker) {
         this.config = config;
@@ -70,10 +80,11 @@ public class ZhmyhpyhTelegramBot extends TelegramLongPollingBot {
 
     @Override
     public void onUpdateReceived(@NotNull Update update) {
-        long chatId;
+        Long chatId = 0L;
         long userId = 0;
-        String userName;
+        String userName = "";
         String receivedMessage;
+        boolean botCommand = false;
 
         if (update.hasMessage()) {
             chatId = update.getMessage().getChatId();
@@ -82,7 +93,10 @@ public class ZhmyhpyhTelegramBot extends TelegramLongPollingBot {
 
             if (update.getMessage().hasText()) {
                 receivedMessage = update.getMessage().getText();
-                botAnswerUtils(receivedMessage, chatId, userName);
+                botCommand = botAnswerUtils(receivedMessage, chatId, userName, userId);
+                if (receivedMessage.toLowerCase().contains("сосиска")) {
+                    sendMessage(chatId, "\uD83C\uDF2D");
+                }
             }
 
         } else if (update.hasCallbackQuery()) {
@@ -91,19 +105,25 @@ public class ZhmyhpyhTelegramBot extends TelegramLongPollingBot {
             userName = update.getCallbackQuery().getFrom().getFirstName();
             receivedMessage = update.getCallbackQuery().getData();
 
-            botAnswerUtils(receivedMessage, chatId, userName);
+            botCommand = botAnswerUtils(receivedMessage, chatId, userName, userId);
+        }
+
+        if (!botCommand && config.getChatId().equals(chatId)) {
+            updateDB(userId, userName);
         }
     }
 
-    private void botAnswerUtils(String receivedMessage, long chatId, String userName) {
+    private boolean botAnswerUtils(String receivedMessage, long chatId, String userName, Long userId) {
         for (CommandEnum commandEnum : CommandEnum.values()) {
             if (receivedMessage.startsWith(commandEnum.getCommand())) {
-                executeCommand(commandEnum, chatId, userName);
+                executeCommand(commandEnum, chatId, userName, userId);
+                return true;
             }
         }
+        return false;
     }
 
-    private void executeCommand(CommandEnum commandEnum, long chatId, String userName) {
+    private void executeCommand(CommandEnum commandEnum, Long chatId, String userName, long userId) {
         String waitingForTimeUserName;
         switch (commandEnum) {
             case START:
@@ -120,6 +140,15 @@ public class ZhmyhpyhTelegramBot extends TelegramLongPollingBot {
                 break;
             case HELP:
                 helpCommand(chatId);
+                break;
+            case MSG_COUNT:
+                System.out.println(config.getChatId().equals(chatId));
+                System.out.println(config.getChatId() + "-" + chatId);
+                if (config.getChatId().equals(chatId)) {
+                    msgCountCommand(chatId, userId);
+                } else {
+                    sendMessage(chatId, "Данная команда недоступна в этом чате");
+                }
                 break;
             default: break;
         }
@@ -150,12 +179,30 @@ public class ZhmyhpyhTelegramBot extends TelegramLongPollingBot {
     }
 
     private void vyacheslavCommand(long chatId) {
-        String message = "До возвращения Вячеслава осталось: " + getDurationMessage(VYACHESLAV_RETURNING_DATE) + ".";
+        LocalDateTime now = LocalDateTime.now();
+        Duration duration = Duration.between(now, VYACHESLAV_RETURNING_DATE);
+        String message = "";
+        if (duration.toSeconds() > 0) {
+            message = "До возвращения Вячеслава осталось: " + getDurationMessage(duration) + ".";
+        } else if (duration.toDays() == 0) {
+            message = "Вячеслав возвращается сегодня! С Днём возвращения Вячеслава!";
+        } else {
+            message = "Вячеслав вернулся! Ура!";
+        }
         sendMessage(chatId, message);
     }
 
     private void victorCommand(long chatId) {
-        String message = "До возвращения Виктора осталось: " + getDurationMessage(VICTOR_RETURNING_DATE) + ".";
+        LocalDateTime now = LocalDateTime.now();
+        Duration duration = Duration.between(now, VICTOR_RETURNING_DATE);
+        String message = "";
+        if (duration.toSeconds() > 0) {
+            message = "До возвращения Виктора осталось: " + getDurationMessage(duration) + ".";
+        } else if (duration.toDays() == 0) {
+            message = "Виктор возвращается сегодня! С Днём возвращения Виктора!";
+        } else {
+            message = "Виктор вернулся! Ура!";
+        }
         sendMessage(chatId, message);
     }
 
@@ -170,12 +217,37 @@ public class ZhmyhpyhTelegramBot extends TelegramLongPollingBot {
         sendMessage(chatId, message.toString().strip());
     }
 
+    private void msgCountCommand(long chatId, Long id) {
+        User user = userRepository.findById(id).get();
+        String message = user.getName() + ", вот твоя статистика:\n" +
+                "Всего сообщений, начиная с " + DATE_FORMAT.format(user.getDate()) + ": *" + user.getTotalMessageNumber() + "*\n" +
+                "Сообщений за сегодня: *" + user.getDailyMessageNumber() + "*.";
+        sendMessage(chatId, message);
+    }
+
     // ============================================================================================
+
+    private void updateDB(long userId, String userName) {
+        if(userRepository.findById(userId).isEmpty()){
+            User user = new User();
+            user.setId(userId);
+            user.setName(userName);
+            user.setDailyMessageNumber(1);
+            user.setTotalMessageNumber(1);
+            user.setDate(new Date());
+
+            userRepository.save(user);
+            log.info("Added to DB: " + user);
+        } else {
+            userRepository.updateMsgNumberByUserId(userId);
+        }
+    }
 
     private void sendMessage(long chatId, String text) {
         SendMessage message = new SendMessage();
         message.setChatId(chatId);
         message.setText(text);
+        message.setParseMode(ParseMode.MARKDOWN);
 
         try {
             execute(message);
@@ -186,23 +258,26 @@ public class ZhmyhpyhTelegramBot extends TelegramLongPollingBot {
     }
 
     @Scheduled(cron = "${bot.dailymessage.cron}")
-    private void myScheduledMethod() {
+    private void sendDailyMessage() {
         if (subscribers.containsValue(true)) {
-            String message = "Доброе утро!\n\n" +
-                    "До возвращения Вячеслава осталось: " + getDurationMessage(VYACHESLAV_RETURNING_DATE) + ".\n\n" +
-                    "До возвращения Виктора осталось: " + getDurationMessage(VICTOR_RETURNING_DATE) + ".\n\n" +
-                    "Хорошего дня!";
             for (Map.Entry<Long, Boolean> entry : subscribers.entrySet()) {
                 if (entry.getValue()) {
-                    sendMessage(entry.getKey(), message);
+                    sendMessage(entry.getKey(), "Доброе утро!");
+                    vyacheslavCommand(entry.getKey());
+                    victorCommand(entry.getKey());
+                    sendMessage(entry.getKey(), "Всем хорошего дня!");
+                    sendMessage(entry.getKey(), "\uD83C\uDF2D");
                 }
             }
         }
     }
 
-    private String getDurationMessage(LocalDateTime future) {
-        LocalDateTime now = LocalDateTime.now();
-        Duration duration = Duration.between(now, future);
+    @Scheduled(cron = "${dailyrefresh.cron}")
+    private void refreshCounter() {
+        userRepository.resetDailyMsgNumber();
+    }
+
+    private String getDurationMessage(Duration duration) {
         long days = duration.toDays();
         long hours = duration.toHours() % 24;
         long minutes = duration.toMinutes() % 60;

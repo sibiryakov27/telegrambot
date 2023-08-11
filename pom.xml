@@ -16,6 +16,7 @@
     <properties>
         <java.version>11</java.version>
         <org.telegram.version>6.5.0</org.telegram.version>
+        <h2database.version>2.1.214</h2database.version>
     </properties>
     <dependencies>
         <dependency>
@@ -49,6 +50,12 @@
             <groupId>org.telegram</groupId>
             <artifactId>telegrambots</artifactId>
             <version>${org.telegram.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <version>${h2database.version}</version>
+            <scope>runtime</scope>
         </dependency>
     </dependencies>
     <build>

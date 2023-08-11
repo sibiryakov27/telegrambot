@@ -26,6 +26,11 @@ public enum CommandEnum {
             "/help",
             "вывести описание всех команд",
             "Help \u2753"
+    ),
+    MSG_COUNT(
+            "/msg_count",
+            "вывести кол-во написанных сообщений",
+            "Счётчик сообщений \uD83D\uDCAC"
     );
 
     private final String command;
